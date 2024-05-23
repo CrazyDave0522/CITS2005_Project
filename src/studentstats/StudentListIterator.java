@@ -16,37 +16,29 @@ import studentapi.*;
  */
 public class StudentListIterator implements DoubleEndedIterator<Student> {
 
-    // The StudentList object represents student data.
     private StudentList list;
-
-    // The maximum number of retries
-    private int retries;
-
-    // The current page number of student data
-    private int currentPage;
-
-    // The current batch of students fetched from the API.
-    private List<Student> currentBatch;
-
-    // The index of the current student within the current batch.
     private int currentIndex;
+    private int currentPageIndex;
+    private List<Student> currentPage;
+    private int retries;
 
     /**
      * Construct an iterator over the given {@link StudentList} with the
      * specified retry quota.
      *
      * @param list The API interface.
-     * @param retries The number of times to retry a query after getting {@link
-     *     QueryTimedOutException} before declaring the API unreachable and throwing
-     * an {@link ApiUnreachableException}.
+     * @param retries The number of times to retry a query after getting
+     * {@link QueryTimedOutException} before declaring the API unreachable and
+     * throwing an {@link ApiUnreachableException}.
      */
     public StudentListIterator(StudentList list, int retries) {
-        this.list = list;           // Initialize the API interface.
-        this.retries = retries;     // Set the retry quota.
-        this.currentPage = 0;       // Start with the first page.
-        this.currentBatch = new ArrayList<>(); // Initialize an empty batch.
-        this.currentIndex = 0;      // Start with the first student in the batch.
-        loadNextBatch();            // Load the first batch of students.
+        this.list = list;
+        // -1 means not started yet
+        this.currentIndex = -1;
+        this.currentPageIndex = 0;
+        this.currentPage = new ArrayList<>();
+        this.retries = retries;
+        loadPage(currentPageIndex);
     }
 
     /**
@@ -56,77 +48,74 @@ public class StudentListIterator implements DoubleEndedIterator<Student> {
      * @param list The API interface.
      */
     public StudentListIterator(StudentList list) {
-        this(list, 3);  // Use the default retry quota of 3.
+        this(list, 3);
     }
 
-    /**
-     * Load the next batch of students from the API and check if the batch is empty.
-     *
-     * @return true if the batch is not empty, false otherwise.
-     */
-    private boolean loadNextBatch() {
-        int attempts = 0;  // Initialize the number of attempts to fetch data.
+    private void loadPage(int pageNum) {
+        int attempts = 0;
         while (attempts < retries) {
             try {
-                // Try to get the next page of students and reset the index to the start of the batch.
-                currentBatch = Arrays.asList(list.getPage(currentPage));
-                currentPage++;     // Move to the next page.
-                currentIndex = 0;  // Reset the index within the new batch.
-                return !currentBatch.isEmpty();  // Return true if the batch is not empty.
+                currentPage = Arrays.asList(list.getPage(pageNum));
+                // always set the current index to 0 when start a new page
+                currentIndex = -1;
+                return;
             } catch (QueryTimedOutException e) {
-                attempts++;  // Increment the number of attempts if a timeout occurs.
+                attempts++;
             }
         }
-        // Throw an exception if all retry attempts fail.
         throw new ApiUnreachableException();
     }
 
-    /**
-     * Check if there are more students available in the iterator.
-     *
-     * @return true if there are more students, false otherwise.
-     */
     @Override
     public boolean hasNext() {
-        // Check if there are more students in the current batch or load the next batch.
-        return currentIndex < currentBatch.size() || loadNextBatch();
+        // if current page is not finished
+        if (currentIndex < currentPage.size() - 1) {
+            return true;
+        }
+        // if there's another page to go
+        return currentPageIndex < list.getNumPages() - 1;
     }
 
-    /**
-     * Get the next student in the iterator.
-     *
-     * @return The next student.
-     * @throws NoSuchElementException if there are no more students.
-     */
     @Override
     public Student next() {
+        // there is no element next
         if (!hasNext()) {
-            // Throw an exception if there are no more students.
-            throw new NoSuchElementException("No more students");
+            throw new NoSuchElementException();
         }
-        // Return the current student and move the index to the next student.
-        return currentBatch.get(currentIndex++);
+        // if current page is finished
+        if (currentIndex >= currentPage.size() - 1) {
+            // move to next page
+            currentPageIndex++;
+            loadPage(currentPageIndex);
+            currentIndex++;
+            return currentPage.get(currentIndex);
+        }
+        // current page is not finished and there is another element next
+        currentIndex++;
+        return currentPage.get(currentIndex);
     }
 
-    /**
-     * Get the previous student in the iterator.
-     *
-     * @return The previous student.
-     * @throws NoSuchElementException if there are no more students in reverse.
-     */
     @Override
     public Student reverseNext() {
-        if (currentIndex == 0 && currentPage > 1) {
-            // If at the start of the batch and not on the first page, load the previous batch.
-            currentPage -= 2;  // Decrement the currentPage by 2 to move to the previous batch.
-            loadNextBatch();   // Load the batch.
-            currentIndex = currentBatch.size();  // Set the index to the end of the batch.
+        // edge case: if at the very first of a list that with only one page 
+        if (list.getNumPages() == 1 && currentIndex == -1) {
+            currentIndex = currentPage.size();
         }
-        if (currentIndex == 0) {
-            // Throw an exception if there are no more students in reverse.
-            throw new NoSuchElementException("No more students in reverse");
+        // there is an element before current element
+        if (currentIndex > 0) {
+            // get the previous element
+            currentIndex--;
+            return currentPage.get(currentIndex);
         }
-        // Return the previous student and move the index back.
-        return currentBatch.get(--currentIndex);
+        // if current page is finished and current page is not the last page
+        if (currentIndex <= 0 && currentPageIndex < list.getNumPages() - 1) {
+            // move to next page
+            currentPageIndex++;
+            loadPage(currentPageIndex);
+            // set the current index to the last element of the page
+            currentIndex = currentPage.size() - 1;
+            return currentPage.get(currentIndex);
+        }
+        throw new NoSuchElementException();
     }
 }

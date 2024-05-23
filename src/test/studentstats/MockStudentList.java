@@ -1,8 +1,7 @@
 package test.studentstats;
 
-import studentapi.*;
-
 import java.util.Random;
+import studentapi.*;
 
 public class MockStudentList implements StudentList {
     private String[] ids;
